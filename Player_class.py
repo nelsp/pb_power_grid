@@ -21,7 +21,6 @@ class Player():
 
     def purchase_generator(self, city, cost):
         if city not in self.generators:
-            self.generators.append(city)
             self.update_money(-cost)
         else:
             print "already in city"
@@ -41,6 +40,16 @@ class Player():
             self.cards.remove(card)
         else:
             print "don't own that power plant"
+
+    def add_resources(self, fuel, amount):
+        """adjust resources and money for each resource bought"""
+        res_purchase = fuel.buy_resource(amount)
+        self.update_money(-res_purchase[1])
+        self.resources['fuel'] += amount
+
+
+
+
 
 
 
