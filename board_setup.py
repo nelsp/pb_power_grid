@@ -2,6 +2,8 @@ import pprint as pprint
 import matplotlib.pyplot as plt
 import networkx as nx
 import random
+import create_use_resources as res
+
 
 
 """ this file would contain all the functions to create a random playing board of europe given number of players.
@@ -318,11 +320,46 @@ nx.draw_networkx_labels(G, pos, labels=label_dictionary, font_color = 'green', f
 nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8, label_pos=0.5)
 #actually draw the graph  uncomment to save a png file to print
 plt.axis('off')
-plt.savefig("europe.png") # save as png
-plt.show() # display
+#plt.savefig("europe.png") # save as png
+#plt.show() # display
 
 
 test_initial_market = market_setup(number_players)
 
 print test_initial_market[0]
 print test_initial_market[1]
+
+total_supply_coal = 27
+start_supply_coal = (2, 9)
+total_supply_gas = 24
+start_supply_gas = (3, 8)
+total_supply_oil = 20
+start_supply_oil = (3, 9)
+total_supply_uranium = 12
+start_supply_uranium = (8, 9)
+
+
+
+
+coal_cl = [[1 ,[0 ,0 ,0 ,0]] ,[2 ,[0 ,0 ,0 ,0]] ,[3 ,[0 ,0 ,0 ,0]] ,[4 ,[0 ,0 ,0 ,0]] ,[5 ,[0 ,0 ,0 ,0]]
+           ,[6, [0 ,0 ,0 ,0]] ,[7, [0 ,0]] ,[8, [0 ,0]] ,[9, [0 ,0]]]
+gas_cl = [[1, [0, 0, 0, 0]], [2, [0, 0, 0, 0]], [3, [0, 0, 0, 0]], [4, [0, 0, 0, 0]], [5, [0, 0, 0, 0]]
+    , [6, [0, 0, 0, 0]], [7, [0, 0]], [8, [0, 0]], [9, [0, 0]]]
+oil_cl = [[1, [0, 0, 0, 0]], [2, [0, 0, 0, 0]], [3, [0, 0, 0, 0]], [4, [0, 0, 0, 0]], [5, [0, 0, 0, 0]]
+    , [6, [0, 0, 0, 0]], [7, [0, 0]], [8, [0, 0]], [9, [0, 0]]]
+uranium_cl = [[1, [0, 0, 0, 0]], [2, [0, 0, 0, 0]], [3, [0, 0, 0, 0]], [4, [0, 0, 0, 0]], [5, [0, 0, 0, 0]]
+    , [6, [0, 0, 0, 0]], [7, [0, 0]], [8, [0, 0]], [9, [0, 0]]]
+
+coal = res.Resource(total_supply_coal, start_supply_coal, coal_cl)
+coal.initialize_supply()
+gas = res.Resource(total_supply_gas, start_supply_gas, gas_cl)
+gas.initialize_supply()
+oil = res.Resource(total_supply_oil, start_supply_oil, oil_cl)
+oil.initialize_supply()
+uranium = res.Resource(total_supply_uranium, start_supply_uranium, uranium_cl)
+uranium.initialize_supply()
+
+print('total resource supply')
+coal.show_supply()
+print('starting resource board')
+coal.show_board()
