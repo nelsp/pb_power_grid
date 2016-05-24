@@ -48,14 +48,6 @@ class Player():
         self.resources['fuel'] += amount
 
 
-
-
-
-
-
-
-
-
 #**************************************************************
 
 player_1 = Player()

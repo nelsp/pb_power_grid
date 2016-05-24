@@ -237,7 +237,7 @@ def starting_player_order(number_of_players):
 
 def market_setup(number_of_players):
 
-    """returns 2 lists, the first 9 dark cards for the starting marketplace and the rest of the deck ready for play"""
+    """returns 2 lists, the first 9 dark cards for the starting marketplace and the rest of the deck ready for play  the stage 3 card is 99 'stage three'"""
 
     cards = [['44', 'green', '0', '6'], ['36', 'green', '0', '5'], ['31', 'green', '0', '4'], ['28', 'green', '0', '3'], ['24', 'green', '0', '3'], ['17', 'green', '0', '2'], ['11', 'green', '0', '1'],
              ['46', 'gas', '2', '7'], ['39', 'gas', '2', '6'], ['34', 'gas', '3', '6'], ['26', 'gas', '1', '4'], ['19', 'gas', '1', '3'], ['16', 'gas', '2', '3'], ['14', 'gas', '1', '2'], ['5', 'gas', '2', '1'],
