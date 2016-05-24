@@ -6,11 +6,15 @@ import create_use_resources as res
 class Player(res.Resource):
     """player object to keep track of player state  """
 
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.money = 50
         self.generators = []
         self.cards = []
         self.resources = {'coal':0, 'oil':0, 'gas':0, 'uranium':0}
+
+    def __repr__(self):
+        return '%s' % (self.name)
 
     def update_money(self, amount):
         if self.money + amount < 0:
@@ -20,6 +24,9 @@ class Player(res.Resource):
 
     def show_money(self):
         return self.money
+
+    def show_name(self):
+        return self.name
 
     def show_resources(self):
         return self.resources
@@ -63,9 +70,10 @@ class Player(res.Resource):
 
 #**************************************************************
 
-player_1 = Player()
+player_1 = Player('p1')
 
 print player_1.show_money()
+print player_1.show_name()
 
 player_1.update_money(25)
 
