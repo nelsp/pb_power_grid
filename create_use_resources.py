@@ -1,10 +1,11 @@
 
 class Resource():
 
-    def __init__(self, total_supply, start_allocation, capacity_list):
+    def __init__(self, total_supply, start_allocation, capacity_list, name):
         self.total_supply = total_supply
         self.start_allocation = start_allocation
         self.capacity_list = capacity_list
+        self.name = name
 
     def initialize_supply(self):
         """place the initial supply of the resource at the start of the game into the capacity_list"""
@@ -69,6 +70,10 @@ class Resource():
         """print list of resource currently on the board"""
         print(self.total_supply)
 
+    def show_name(self):
+        """returns name of resource as string"""
+        return self.name
+
 """some tests for the resource class  need to separate into two files"""
 
 
@@ -100,13 +105,13 @@ resupply_dic_oil = {2:[2, 2, 3], 3:[2, 2, 3], 4:[3, 3, 4], 5:[4, 3, 5], 6:[4, 5,
 resupply_dic_nuclear = {2:[1, 1, 2], 3:[1, 1, 2], 4:[1, 2, 2], 5:[2, 3, 3], 6:[2, 3, 4]}
 
 
-coal = Resource(total_supply_coal, start_supply_coal, coal_cl)
+coal = Resource(total_supply_coal, start_supply_coal, coal_cl, 'coal')
 coal.initialize_supply()
-gas = Resource(total_supply_gas, start_supply_gas, gas_cl)
+gas = Resource(total_supply_gas, start_supply_gas, gas_cl, 'gas')
 gas.initialize_supply()
-oil = Resource(total_supply_oil, start_supply_oil, oil_cl)
+oil = Resource(total_supply_oil, start_supply_oil, oil_cl, 'oil')
 oil.initialize_supply()
-uranium = Resource(total_supply_uranium, start_supply_uranium, uranium_cl)
+uranium = Resource(total_supply_uranium, start_supply_uranium, uranium_cl, 'uranium')
 uranium.initialize_supply()
 
 num_players = 5

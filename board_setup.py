@@ -287,6 +287,12 @@ def market_setup(number_of_players):
 
     return first_nine_cards, remaining_deck
 
+def occupied_city_dict(list_of_cities):
+    occ_city_dict = {}
+    for c in list_of_cities:
+        occ_city_dict[c] = [10,15,20]
+    return occ_city_dict
+
 #*****************************************************************
 
 
@@ -350,16 +356,18 @@ oil_cl = [[1, [0, 0, 0, 0]], [2, [0, 0, 0, 0]], [3, [0, 0, 0, 0]], [4, [0, 0, 0,
 uranium_cl = [[1, [0, 0, 0, 0]], [2, [0, 0, 0, 0]], [3, [0, 0, 0, 0]], [4, [0, 0, 0, 0]], [5, [0, 0, 0, 0]]
     , [6, [0, 0, 0, 0]], [7, [0, 0]], [8, [0, 0]], [9, [0, 0]]]
 
-coal = res.Resource(total_supply_coal, start_supply_coal, coal_cl)
+coal = res.Resource(total_supply_coal, start_supply_coal, coal_cl, 'coal')
 coal.initialize_supply()
-gas = res.Resource(total_supply_gas, start_supply_gas, gas_cl)
+gas = res.Resource(total_supply_gas, start_supply_gas, gas_cl, 'gas')
 gas.initialize_supply()
-oil = res.Resource(total_supply_oil, start_supply_oil, oil_cl)
+oil = res.Resource(total_supply_oil, start_supply_oil, oil_cl, 'oil')
 oil.initialize_supply()
-uranium = res.Resource(total_supply_uranium, start_supply_uranium, uranium_cl)
+uranium = res.Resource(total_supply_uranium, start_supply_uranium, uranium_cl, 'uranium')
 uranium.initialize_supply()
 
 print('total resource supply')
 coal.show_supply()
 print('starting resource board')
 coal.show_board()
+
+print occupied_city_dict(city_nodes)
