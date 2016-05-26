@@ -252,5 +252,13 @@
       "resource": "oil&gas", 
       "cities": 3
     }
-  ]
+  ],
+  "stage_three_card": 
+    {
+      "resource_cost": 0,
+      "cost": 99,
+      "resource": "stage three",
+      "cities": 0,
+      "type": "light"
+    }
 }
