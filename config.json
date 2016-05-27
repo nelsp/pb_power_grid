@@ -1,0 +1,264 @@
+{
+  "cards": [
+    {
+      "resource_cost": 0, 
+      "cost": 44, 
+      "resource": "green", 
+      "cities": 6
+    }, 
+    {
+      "resource_cost": 0, 
+      "cost": 36, 
+      "resource": "green", 
+      "cities": 5
+    }, 
+    {
+      "resource_cost": 0, 
+      "cost": 31, 
+      "resource": "green", 
+      "cities": 4
+    }, 
+    {
+      "resource_cost": 0, 
+      "cost": 28, 
+      "resource": "green", 
+      "cities": 3
+    }, 
+    {
+      "resource_cost": 0, 
+      "cost": 24, 
+      "resource": "green", 
+      "cities": 3
+    }, 
+    {
+      "resource_cost": 0, 
+      "cost": 17, 
+      "resource": "green", 
+      "cities": 2
+    }, 
+    {
+      "resource_cost": 0, 
+      "cost": 11, 
+      "resource": "green", 
+      "cities": 1
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 46, 
+      "resource": "gas", 
+      "cities": 7
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 39, 
+      "resource": "gas", 
+      "cities": 6
+    }, 
+    {
+      "resource_cost": 3, 
+      "cost": 34, 
+      "resource": "gas", 
+      "cities": 6
+    }, 
+    {
+      "resource_cost": 1, 
+      "cost": 26, 
+      "resource": "gas", 
+      "cities": 4
+    }, 
+    {
+      "resource_cost": 1, 
+      "cost": 19, 
+      "resource": "gas", 
+      "cities": 3
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 16, 
+      "resource": "gas", 
+      "cities": 3
+    }, 
+    {
+      "resource_cost": 1, 
+      "cost": 14, 
+      "resource": "gas", 
+      "cities": 2
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 5, 
+      "resource": "gas", 
+      "cities": 1
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 40, 
+      "resource": "coal", 
+      "cities": 6
+    }, 
+    {
+      "resource_cost": 3, 
+      "cost": 33, 
+      "resource": "coal", 
+      "cities": 6
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 29, 
+      "resource": "coal", 
+      "cities": 5
+    }, 
+    {
+      "resource_cost": 1, 
+      "cost": 27, 
+      "resource": "coal", 
+      "cities": 4
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 25, 
+      "resource": "coal", 
+      "cities": 5
+    }, 
+    {
+      "resource_cost": 3, 
+      "cost": 20, 
+      "resource": "coal", 
+      "cities": 4
+    }, 
+    {
+      "resource_cost": 1, 
+      "cost": 15, 
+      "resource": "coal", 
+      "cities": 2
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 12, 
+      "resource": "coal", 
+      "cities": 2
+    }, 
+    {
+      "resource_cost": 3, 
+      "cost": 9, 
+      "resource": "coal", 
+      "cities": 2
+    }, 
+    {
+      "resource_cost": 1, 
+      "cost": 7, 
+      "resource": "coal", 
+      "cities": 1
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 4, 
+      "resource": "coal", 
+      "cities": 1
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 3, 
+      "resource": "coal", 
+      "cities": 1
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 42, 
+      "resource": "oil", 
+      "cities": 6
+    }, 
+    {
+      "resource_cost": 3, 
+      "cost": 38, 
+      "resource": "oil", 
+      "cities": 6
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 30, 
+      "resource": "oil", 
+      "cities": 5
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 23, 
+      "resource": "oil", 
+      "cities": 4
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 18, 
+      "resource": "oil", 
+      "cities": 3
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 10, 
+      "resource": "oil", 
+      "cities": 2
+    }, 
+    {
+      "resource_cost": 1, 
+      "cost": 6, 
+      "resource": "oil", 
+      "cities": 1
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 50, 
+      "resource": "nuclear", 
+      "cities": 7
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 37, 
+      "resource": "nuclear", 
+      "cities": 6
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 32, 
+      "resource": "nuclear", 
+      "cities": 5
+    }, 
+    {
+      "resource_cost": 1, 
+      "cost": 21, 
+      "resource": "nuclear", 
+      "cities": 3
+    }, 
+    {
+      "resource_cost": 1, 
+      "cost": 13, 
+      "resource": "nuclear", 
+      "cities": 2
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 35, 
+      "resource": "oil&gas", 
+      "cities": 5
+    }, 
+    {
+      "resource_cost": 3, 
+      "cost": 22, 
+      "resource": "oil&gas", 
+      "cities": 5
+    }, 
+    {
+      "resource_cost": 2, 
+      "cost": 8, 
+      "resource": "oil&gas", 
+      "cities": 3
+    }
+  ],
+  "stage_three_card": 
+    {
+      "resource_cost": 0,
+      "cost": 99,
+      "resource": "stage three",
+      "cities": 0,
+      "type": "light"
+    }
+}
