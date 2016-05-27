@@ -33,8 +33,9 @@ def market_setup(number_of_players):
         dark_cards = dark_cards[:-1]
         light_cards = light_cards[:-3]
 
-
-    first_nine_cards = dark_cards[:9]
+    
+    # first 9 cards should be sorted by cost
+    first_nine_cards = sorted(dark_cards[:9], key=lambda x: x.cost)
     rest_of_dark_cards = dark_cards[9:]
 
     remaining_deck = rest_of_dark_cards + light_cards
@@ -59,7 +60,13 @@ for c in first_nine:
     assert c.type == 'dark'
 
 # check that the last card in the remaining is the phase 3 card
-assert rest[-1].resource == 'stage three'
+assert rest[-1].resources == ['stage three']
+
+# check that the first 9 cards are sorted
+for (i,c) in enumerate(first_nine):
+    if i == 8:
+        break
+    assert c.cost < first_nine[i + 1].cost
 
 print 'All tests passed'
 
