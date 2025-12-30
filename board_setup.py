@@ -298,7 +298,7 @@ def occupied_city_dict(list_of_cities):
 
 color_graph = generate_color_graph(eur_areas)
 
-number_players = 6
+number_players = 4
 
 
 #create variables for generating the graph
@@ -332,8 +332,8 @@ plt.axis('off')
 
 test_initial_market = market_setup(number_players)
 
-print test_initial_market[0]
-print test_initial_market[1]
+print(test_initial_market[0])
+print(test_initial_market[1])
 
 total_supply_coal = 27
 start_supply_coal = (2, 9)
@@ -370,4 +370,4 @@ coal.show_supply()
 print('starting resource board')
 coal.show_board()
 
-print occupied_city_dict(city_nodes)
+print(occupied_city_dict(city_nodes))

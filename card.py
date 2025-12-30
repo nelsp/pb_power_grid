@@ -11,11 +11,11 @@ class Card:
       self.type = 'dark'
   
   def __repr__(self):
-		return """
-		##########################
-		        Cost {}                 
-		                        
-		      {} {} ==> {}
-		       Type: {}           
-		##########################
-		""".format(self.cost, self.resource_cost, self.resource, self.cities, self.type)
+    return """
+    ##########################
+            Cost {}                 
+                            
+          {} {} ==> {}
+           Type: {}           
+    ##########################
+    """.format(self.cost, self.resource_cost, self.resource, self.cities, self.type)

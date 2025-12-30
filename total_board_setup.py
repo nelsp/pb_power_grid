@@ -7,7 +7,7 @@ from create_use_resources import Resource
 from Player_class import Player
 
 
-number_of_players = 5
+number_of_players = 4
 
 """ this file would contain all the functions to create a random playing board of europe given number of players.
     number of players it will randomly choose the right number of contiguous colored ares
@@ -253,9 +253,9 @@ the_game_graph = generate_game_graph(game_board)
 city_nodes = create_city_nodes(the_game_graph)
 
 test_initial_market = market_setup(number_of_players)
-print 'staring card market'
-print test_initial_market[0]
-print test_initial_market[1]
+print('staring card market')
+print(test_initial_market[0])
+print(test_initial_market[1])
 
 total_supply_coal = 27
 start_supply_coal = (2, 9)
@@ -290,23 +290,22 @@ coal.show_supply()
 print('starting resource board')
 coal.show_board()
 
-print occupied_city_dict(city_nodes)
+print(occupied_city_dict(city_nodes))
 
 player_1 = Player('p1')
 player_2 = Player('p2')
 player_3 = Player('p3')
 player_4 = Player('p4')
-player_5 = Player('p5')
-player_6 = Player('p6')
 
-total_player_list = [player_1, player_2, player_3, player_4, player_5, player_6]
+
+total_player_list = [player_1, player_2, player_3, player_4]
 player_list = total_player_list[:number_of_players]
 for p in player_list:
-    print p
+    print(p)
 random.shuffle(player_list)
-print 'randomized'
+print('randomized')
 for p in player_list:
-    print p
+    print(p)
 
 
 

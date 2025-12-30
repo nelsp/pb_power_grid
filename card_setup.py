@@ -4,7 +4,8 @@ from card import Card
 
 
 number_of_players = 5
-config = json.loads(open('config.json').read())
+with open('config.json', 'r') as f:
+    config = json.load(f)
 
 def market_setup(number_of_players):
 
@@ -61,7 +62,7 @@ for c in first_nine:
 # check that the last card in the remaining is the phase 3 card
 assert rest[-1].resource == 'stage three'
 
-print 'All tests passed'
+print('All tests passed')
 
 
 
