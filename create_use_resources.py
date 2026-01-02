@@ -7,6 +7,15 @@ class Resource():
         self.capacity_list = capacity_list
         self.name = name
 
+    def to_dict(self):
+        """Convert Resource to dictionary for JSON serialization"""
+        return {
+            'total_supply': self.total_supply,
+            'start_allocation': tuple(self.start_allocation) if isinstance(self.start_allocation, (list, tuple)) else self.start_allocation,
+            'capacity_list': [[price, list(slots)] for price, slots in self.capacity_list],  # Deep copy
+            'name': self.name
+        }
+
     def initialize_supply(self):
         """place the initial supply of the resource at the start of the game into the capacity_list"""
         unit_count = 0
@@ -73,6 +82,16 @@ class Resource():
     def show_name(self):
         """returns name of resource as string"""
         return self.name
+
+    @property
+    def count(self):
+        """Returns the number of resources currently on the board"""
+        count = 0
+        for bin in self.capacity_list:
+            for res in bin[1]:
+                if res == 1:
+                    count += 1
+        return count
 
 """some tests for the resource class  need to separate into two files"""
 

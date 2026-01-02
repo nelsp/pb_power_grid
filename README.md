@@ -1,6 +1,27 @@
 # pb_power_grid
 simulate the power grid game
 
+## Setup
+
+1. Create and activate a virtual environment:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+2. Install dependencies:
+```bash
+pip3 install -r requirements.txt
+```
+
+## Run
+
+```bash
+python3 run_game.py
+```
+
+## Game Details
+
 Game setup: only europe and 3-6 players
 
 Based on number of players, generate random graph of europe, initial player order, market setup (cards shuffled) and resources allocated

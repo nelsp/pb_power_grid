@@ -6,15 +6,26 @@ import create_use_resources as res
 class Player:
     """player object to keep track of player state  """
 
-    def __init__(self, name):
+    def __init__(self, name, strategy=None):
         self.name = name
         self.money = 50
         self.generators = []
         self.cards = []
         self.resources = {'coal':0, 'oil':0, 'gas':0, 'uranium':0}
+        self.strategy = strategy  # Strategy object for making decisions
 
     def __repr__(self):
         return '%s' % (self.name)
+
+    def to_dict(self):
+        """Convert Player to dictionary for JSON serialization"""
+        return {
+            'name': self.name,
+            'money': self.money,
+            'generators': list(self.generators),  # Create a copy of the list
+            'cards': [card.to_dict() for card in self.cards],
+            'resources': dict(self.resources)  # Create a copy of the dict
+        }
 
     def update_money(self, amount):
         # Note: Game engine should validate funds before calling this

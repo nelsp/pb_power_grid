@@ -7,6 +7,7 @@ import random
 import copy
 from card import Card
 import create_use_resources as res
+from game_state_logger import GameStateLogger
 
 
 # Payment table: cities powered -> Elektro earned
@@ -29,8 +30,8 @@ STEP_2_THRESHOLDS = {2: 7, 3: 7, 4: 7, 5: 6, 6: 5}
 
 class GameState:
     """Represents the current state of the game"""
-    
-    def __init__(self, players, current_market, future_market, deck, board_graph, 
+
+    def __init__(self, players, current_market, future_market, deck, board_graph,
                  resources, player_order, step=1, round_num=1, phase='determine_order'):
         self.players = players  # List of Player objects
         self.current_market = current_market  # List of Card objects (4 plants)
@@ -45,18 +46,59 @@ class GameState:
         self.step_3_triggered = False
         self.game_over = False
         self.winner = None
-        
+
         # Track city occupancy: {city_name: [player_indices]}
         self.city_occupancy = {}
         for city_node in board_graph:
             city_name = city_node[1] if isinstance(city_node, tuple) else city_node
             self.city_occupancy[city_name] = []
 
+        # Auction state tracking
+        self.auction_active = False
+        self.auction_plant = None  # Card being auctioned
+        self.auction_current_bid = None  # Current highest bid
+        self.auction_current_winner = None  # Player index of current winner
+        self.auction_active_bidders = []  # List of player indices still in the auction
+        self.auction_starter = None  # Player index who opened the auction
+
+    def to_dict(self):
+        """Convert GameState to dictionary for JSON serialization"""
+        # Convert board_graph to serializable format
+        board_graph_serializable = {}
+        for city_node, connections in self.board_graph.items():
+            city_key = str(city_node)
+            board_graph_serializable[city_key] = {}
+            for connected_city, cost in connections.items():
+                board_graph_serializable[city_key][str(connected_city)] = cost
+
+        return {
+            'players': [player.to_dict() for player in self.players],
+            'current_market': [card.to_dict() for card in self.current_market],
+            'future_market': [card.to_dict() for card in self.future_market],
+            'deck': [card.to_dict() for card in self.deck],
+            'board_graph': board_graph_serializable,
+            'resources': {name: resource.to_dict() for name, resource in self.resources.items()},
+            'player_order': list(self.player_order),  # Create a copy of the list
+            'step': self.step,
+            'round_num': self.round_num,
+            'phase': self.phase,
+            'step_3_triggered': self.step_3_triggered,
+            'game_over': self.game_over,
+            'winner': self.winner,
+            'city_occupancy': {city: list(occupants) for city, occupants in self.city_occupancy.items()},  # Deep copy
+            'auction_active': self.auction_active,
+            'auction_plant': self.auction_plant.to_dict() if self.auction_plant else None,
+            'auction_current_bid': self.auction_current_bid,
+            'auction_current_winner': self.auction_current_winner,
+            'auction_active_bidders': list(self.auction_active_bidders),
+            'auction_starter': self.auction_starter
+        }
+
 
 class GameEngine:
     """Main game engine for Power Grid"""
-    
-    def __init__(self, players, current_market, future_market, deck, board_graph, resources, player_order, num_players):
+
+    def __init__(self, players, current_market, future_market, deck, board_graph, resources, player_order, num_players, enable_logging=False, game_id=None, log_file=None):
         self.num_players = num_players
         self.players = players
         self.game_state = GameState(
@@ -71,20 +113,34 @@ class GameEngine:
             round_num=1,
             phase='determine_order'
         )
+
+        # Initialize game state logger
+        self.enable_logging = enable_logging
+        if enable_logging:
+            self.logger = GameStateLogger(game_id=game_id, output_file=log_file)
+            # Log initial state
+            self.logger.log_state(self.game_state, description="initial_setup")
     
-    def run_game(self, player_strategies, verbose=True, max_rounds=20):
+    def run_game(self, player_strategies=None, verbose=True, max_rounds=20):
         """Run the complete game
-        
+
         Args:
-            player_strategies: List of strategy objects for each player
+            player_strategies: (DEPRECATED) List of strategy objects for each player.
+                             Strategies should now be assigned to player.strategy
             verbose: Whether to print game progress
             max_rounds: Maximum number of rounds to play (default: 20)
         """
+        # Support legacy API where strategies are passed separately
+        if player_strategies is not None:
+            for i, strategy in enumerate(player_strategies):
+                if self.players[i].strategy is None:
+                    self.players[i].strategy = strategy
+
         if verbose:
             print("=" * 60)
             print("POWER GRID - Game Starting")
             print("=" * 60)
-        
+
         while not self.game_state.game_over:
             # Check if we've reached max rounds
             if self.game_state.round_num > max_rounds:
@@ -92,35 +148,49 @@ class GameEngine:
                 if verbose:
                     print(f"\nMaximum rounds ({max_rounds}) reached.")
                 break
-            
+
             if verbose:
                 print("\n" + "=" * 60)
                 print(f"Round {self.game_state.round_num} - Step {self.game_state.step}")
                 print("=" * 60)
-            
+
             # Phase 1: Determine Player Order
             self.phase_1_determine_order()
             if verbose:
                 print(f"Player Order: {[f'P{p}' for p in self.game_state.player_order]}")
-            
+            if self.enable_logging:
+                self.logger.log_state(self.game_state, description=f"round_{self.game_state.round_num}_after_determine_order")
+
             # Phase 2: Auction Power Plants
-            self.phase_2_auction(player_strategies, verbose)
-            
+            self.phase_2_auction(verbose)
+            if self.enable_logging:
+                self.logger.log_state(self.game_state, description=f"round_{self.game_state.round_num}_after_auction")
+
             # Phase 3: Buy Resources
-            self.phase_3_buy_resources(player_strategies, verbose)
-            
+            self.phase_3_buy_resources(verbose)
+            if self.enable_logging:
+                self.logger.log_state(self.game_state, description=f"round_{self.game_state.round_num}_after_buy_resources")
+
             # Phase 4: Build Generators
-            self.phase_4_build(player_strategies, verbose)
-            
+            self.phase_4_build(verbose)
+            if self.enable_logging:
+                self.logger.log_state(self.game_state, description=f"round_{self.game_state.round_num}_after_build")
+
             # Check for end game after building
             if self.check_end_game():
+                if self.enable_logging:
+                    self.logger.log_state(self.game_state, description="game_end_condition_triggered")
                 break
-            
+
             # Phase 5: Bureaucracy
             self.phase_5_bureaucracy(verbose)
-            
+            if self.enable_logging:
+                self.logger.log_state(self.game_state, description=f"round_{self.game_state.round_num}_after_bureaucracy")
+
             # Check step transitions
             self.check_step_transitions(verbose)
+            if self.enable_logging:
+                self.logger.log_state(self.game_state, description=f"round_{self.game_state.round_num}_after_step_check")
             
             # Print account balances at end of round
             if verbose:
@@ -143,7 +213,15 @@ class GameEngine:
             print("=" * 60)
             print(f"Winner: Player {winner_idx}")
             self.print_final_scores(verbose)
-        
+
+        # Log final state and write to file
+        if self.enable_logging:
+            self.logger.log_state(self.game_state, description=f"game_over_winner_{winner_idx}")
+            self.logger.write_to_file()
+            if verbose:
+                print(f"\nGame state log written to: {self.logger.output_file}")
+                print(f"Total states logged: {self.logger.get_state_count()}")
+
         return winner_idx
     
     def phase_1_determine_order(self):
@@ -158,150 +236,460 @@ class GameEngine:
         self.game_state.player_order = sorted(self.game_state.player_order, key=sort_key)
         self.game_state.phase = 'auction'
     
-    def phase_2_auction(self, player_strategies, verbose):
-        """Phase 2: Auction power plants"""
-        players_who_bought = set()
-        
-        # First round: all players must buy
-        is_first_round = (self.game_state.round_num == 1)
-        
-        # Continue until all players have had a chance to buy or pass
-        auction_round = 0
-        max_auction_rounds = len(self.players) * 2  # Safety limit
-        
-        while auction_round < max_auction_rounds:
-            auction_round += 1
-            any_action = False
-            
-            for player_idx in self.game_state.player_order:
-                if player_idx in players_who_bought:
-                    continue  # Already bought this round
-                
-                player = self.players[player_idx]
-                strategy = player_strategies[player_idx]
-                
-                # Get available plants (current market only)
-                available_plants = [card for card in self.game_state.current_market]
-                
-                # Check if player can buy (has < 3 plants, or can replace)
-                can_buy = len(player.cards) < 3
-                if len(player.cards) == 3:
-                    # Can only buy if new plant is larger than smallest owned
-                    smallest_owned = min([card.cost for card in player.cards])
-                    available_plants = [p for p in available_plants if p.cost > smallest_owned]
-                    can_buy = len(available_plants) > 0
-                
-                if not available_plants and not is_first_round:
-                    continue  # No plants available, skip
-                
-                # Get player's move
-                move = strategy.choose_auction_move(
-                    player, self.game_state, available_plants, can_buy, is_first_round
-                )
-                
-                if move is None or move == 'pass':
-                    if not is_first_round:
-                        continue  # Pass
-                    else:
-                        # First round: must buy, choose cheapest available
-                        if available_plants:
-                            move = {'action': 'buy', 'plant': available_plants[0], 'bid': available_plants[0].cost}
-                        else:
-                            continue
-                
-                if move.get('action') == 'buy':
-                    plant = move['plant']
-                    bid = move.get('bid', plant.cost)
-                    
-                    # Validate bid
-                    if bid < plant.cost:
-                        bid = plant.cost
-                    if bid > player.money:
-                        if verbose:
-                            print(f"Player {player_idx}: Invalid bid {bid}E (only has {player.money}E)")
-                        continue
-                    
-                    # Execute purchase
-                    player.cards.append(plant)
-                    player.update_money(-bid)
-                    
-                    # Remove plant from market
-                    self.game_state.current_market.remove(plant)
-                    
-                    # If player has > 3 plants, discard smallest
-                    if len(player.cards) > 3:
-                        player.cards.sort(key=lambda c: c.cost)
-                        discarded = player.cards.pop(0)
-                        if verbose:
-                            print(f"Player {player_idx}: Discarded plant {discarded.cost}")
-                    
-                    # Add new plant to market
-                    self.update_market_after_purchase()
-                    
-                    players_who_bought.add(player_idx)
-                    any_action = True
-                    
-                    if verbose:
-                        print(f"Player {player_idx} bought plant {plant.cost} for {bid}E")
-            
-            # Check if all players have passed (except first round)
-            if not is_first_round and not any_action and len(players_who_bought) == 0:
-                # Europe rule: remove smallest plant
-                if self.game_state.current_market:
-                    smallest = min(self.game_state.current_market, key=lambda c: c.cost)
-                    self.game_state.current_market.remove(smallest)
-                    if verbose:
-                        print(f"All players passed - removed plant {smallest.cost}")
-                    self.update_market_after_purchase()
-                break
-            
-            # Check if all players have bought (first round requirement)
-            if is_first_round and len(players_who_bought) == len(self.players):
-                break
-        
-        self.game_state.phase = 'buy_resources'
-    
-    def draw_next_plant(self):
-        """Draw next plant from deck, handling Step 3 card
-        
-        In Steps 1 & 2, only draws dark cards (cost < 16).
-        In Step 3, draws any card.
+    def phase_2_auction(self, verbose):
+        """Phase 2: Auction power plants with validation-retry loops
+
+        Game engine ONLY validates and executes moves - never makes decisions.
+        Invalid moves result in retries, then exceptions if max retries exceeded.
         """
+        players_who_bought = set()
+        players_who_passed = set()
+        is_first_round = (self.game_state.round_num == 1)
+
+        if verbose:
+            print("\n--- AUCTION PHASE ---")
+
+        # Continue until all players have bought or passed
+        while len(players_who_bought) + len(players_who_passed) < len(self.players):
+            # Get eligible players (in turn order)
+            eligible_players = [p for p in self.game_state.player_order
+                              if p not in players_who_bought and p not in players_who_passed]
+
+            if not eligible_players:
+                break
+
+            # Check if market has plants
+            if not self.game_state.current_market:
+                if verbose:
+                    print("No plants available in market")
+                break
+
+            # Current player gets validated move (with retries)
+            current_player_idx = eligible_players[0]
+
+            # Get validated move - raises exception if player fails after max_retries
+            move = self.get_validated_auction_opening(current_player_idx, is_first_round, verbose)
+
+            # Handle pass
+            if move == 'pass':
+                players_who_passed.add(current_player_idx)
+                if verbose:
+                    print(f"Player {current_player_idx}: Passed")
+                continue
+
+            # Handle buy - start auction
+            plant = move['plant']
+            initial_bid = move['bid']
+            initial_discard = move.get('discard')
+
+            if verbose:
+                print(f"\nPlayer {current_player_idx} opens bidding on plant {plant.cost} at {initial_bid}E")
+
+            # Run validated auction
+            winner_idx, final_bid, discard_card = self.run_plant_auction(
+                plant, current_player_idx, initial_bid, initial_discard,
+                eligible_players, players_who_passed, verbose
+            )
+
+            if winner_idx is not None:
+                # Execute purchase with player's chosen discard
+                self.execute_plant_purchase(winner_idx, plant, final_bid, discard_card, verbose)
+                players_who_bought.add(winner_idx)
+            else:
+                # No one won (shouldn't happen but handle gracefully)
+                if verbose:
+                    print(f"No winner for plant {plant.cost}")
+
+        # Europe rule: If all players passed without buying, remove smallest plant
+        if not is_first_round and len(players_who_bought) == 0 and self.game_state.current_market:
+            smallest = min(self.game_state.current_market, key=lambda c: c.cost)
+            self.game_state.current_market.remove(smallest)
+            if verbose:
+                print(f"All players passed - removed plant {smallest.cost}")
+            self.update_market_after_purchase()
+
+        self.game_state.phase = 'buy_resources'
+
+    def run_plant_auction(self, plant, starter_idx, initial_bid, initial_discard, eligible_players, players_who_passed, verbose):
+        """Run a validated auction for a specific plant
+
+        Args:
+            plant: The plant being auctioned
+            starter_idx: Player who started the auction
+            initial_bid: Starting bid
+            initial_discard: Card starter will discard (None if < 3 plants)
+            eligible_players: List of player indices who can bid
+            players_who_passed: Set of players who passed this round
+            verbose: Print auction progress
+
+        Returns:
+            (winner_idx, final_bid, discard_card) or (None, None, None) if everyone passed
+        """
+        current_bid = initial_bid
+        current_winner = starter_idx
+        current_discard = initial_discard
+
+        # Active bidders are eligible players not already passed, except starter
+        active_bidders = [p for p in eligible_players
+                         if p not in players_who_passed and p != starter_idx]
+
+        # Set auction state
+        self.game_state.auction_active = True
+        self.game_state.auction_plant = plant
+        self.game_state.auction_current_bid = current_bid
+        self.game_state.auction_current_winner = current_winner
+        self.game_state.auction_active_bidders = list(active_bidders)
+        self.game_state.auction_starter = starter_idx
+
+        # Log auction start
+        if self.enable_logging:
+            self.logger.log_state(self.game_state,
+                description=f"auction_start_plant_{plant.cost}_player_{starter_idx}_bid_{initial_bid}")
+
+        if not active_bidders:
+            # No one else to bid, starter wins
+            if verbose:
+                print(f"  No other bidders, Player {starter_idx} wins at {initial_bid}E")
+
+            # Clear auction state
+            self.game_state.auction_active = False
+            return (starter_idx, initial_bid, initial_discard)
+
+        if verbose:
+            print(f"  Active bidders: {active_bidders}")
+
+        # Bidding loop - go through players in order until only one remains
+        while len(active_bidders) > 0:
+            made_bid = False
+
+            for player_idx in list(active_bidders):
+                min_bid = current_bid + 1
+
+                # Get validated bid from player
+                bid_response = self.get_validated_auction_bid(
+                    player_idx, plant, current_bid, current_winner, min_bid, verbose
+                )
+
+                if bid_response == 'pass':
+                    active_bidders.remove(player_idx)
+
+                    # Update auction state
+                    self.game_state.auction_active_bidders = list(active_bidders)
+
+                    # Log pass
+                    if self.enable_logging:
+                        self.logger.log_state(self.game_state,
+                            description=f"auction_pass_player_{player_idx}")
+
+                    if verbose:
+                        print(f"  Player {player_idx}: Passed")
+                    continue
+
+                # Player made a valid bid
+                new_bid = bid_response['bid']
+                new_discard = bid_response.get('discard')
+
+                current_bid = new_bid
+                current_winner = player_idx
+                current_discard = new_discard
+                made_bid = True
+
+                # Update auction state
+                self.game_state.auction_current_bid = current_bid
+                self.game_state.auction_current_winner = current_winner
+
+                # Log bid
+                if self.enable_logging:
+                    self.logger.log_state(self.game_state,
+                        description=f"auction_bid_player_{player_idx}_amount_{new_bid}")
+
+                if verbose:
+                    print(f"  Player {player_idx}: Raises to {new_bid}E")
+
+            # If no one made a bid this round, auction is over
+            if not made_bid:
+                break
+
+        # Clear auction state
+        self.game_state.auction_active = False
+
+        # Log auction end
+        if self.enable_logging:
+            self.logger.log_state(self.game_state,
+                description=f"auction_end_winner_{current_winner}_plant_{plant.cost}_final_bid_{current_bid}")
+
+        return (current_winner, current_bid, current_discard)
+
+    def validate_auction_opening(self, player_idx, move):
+        """Validate a player's auction opening move
+
+        Move should be:
+        - 'pass' to pass (not allowed in first round)
+        - {'action': 'buy', 'plant': plant, 'bid': amount, 'discard': card (optional)}
+
+        Returns:
+            (valid: bool, error_message: str or None)
+        """
+        player = self.players[player_idx]
+
+        if move == 'pass':
+            return (True, None)
+
+        if not isinstance(move, dict) or move.get('action') != 'buy':
+            return (False, "Move must be 'pass' or {'action': 'buy', ...}")
+
+        plant = move.get('plant')
+        bid = move.get('bid')
+
+        if plant is None:
+            return (False, "Must specify plant to buy")
+
+        if plant not in self.game_state.current_market:
+            return (False, f"Plant {plant.cost} not in current market")
+
+        if bid is None or not isinstance(bid, (int, float)):
+            return (False, "Must specify bid amount")
+
+        if bid < plant.cost:
+            return (False, f"Bid {bid}E is below plant cost {plant.cost}E")
+
+        if bid > player.money:
+            return (False, f"Bid {bid}E exceeds available money {player.money}E")
+
+        # Check if player can buy this plant
+        if len(player.cards) >= 3:
+            # Must be able to replace
+            smallest_owned = min(player.cards, key=lambda c: c.cost)
+            if plant.cost <= smallest_owned.cost:
+                return (False, f"Plant {plant.cost} not better than smallest owned ({smallest_owned.cost})")
+
+            # Must specify which plant to discard
+            discard = move.get('discard')
+            if discard is None:
+                return (False, "Must specify which plant to discard (player has 3 plants)")
+
+            if discard not in player.cards:
+                return (False, f"Cannot discard plant {discard.cost} - not owned")
+
+        return (True, None)
+
+    def validate_auction_bid(self, player_idx, bid_response, plant, current_bid, min_bid):
+        """Validate a player's bid response during auction
+
+        Response should be:
+        - 'pass' to pass
+        - integer bid amount
+        - {'bid': amount, 'discard': card (optional)}
+
+        Returns:
+            (valid: bool, error_message: str or None, normalized_response)
+        """
+        player = self.players[player_idx]
+
+        if bid_response == 'pass' or bid_response is None or bid_response is False:
+            return (True, None, 'pass')
+
+        # Handle integer response
+        if isinstance(bid_response, int):
+            bid_amount = bid_response
+            discard = None
+        elif isinstance(bid_response, dict):
+            bid_amount = bid_response.get('bid')
+            discard = bid_response.get('discard')
+        else:
+            return (False, f"Invalid bid response type: {type(bid_response)}", None)
+
+        if bid_amount < min_bid:
+            return (False, f"Bid {bid_amount}E below minimum {min_bid}E", None)
+
+        if bid_amount > player.money:
+            return (False, f"Bid {bid_amount}E exceeds available money {player.money}E", None)
+
+        # Check discard requirement
+        if len(player.cards) >= 3:
+            if discard is None:
+                return (False, "Must specify which plant to discard (player has 3 plants)", None)
+            if discard not in player.cards:
+                return (False, f"Cannot discard plant {discard.cost} - not owned", None)
+
+        return (True, None, {'bid': bid_amount, 'discard': discard})
+
+    def get_validated_auction_opening(self, player_idx, is_first_round, verbose, max_retries=10):
+        """Get a validated auction opening move from a player
+
+        Asks the player's strategy for a move and validates it.
+        Retries up to max_retries times if move is invalid.
+
+        Args:
+            player_idx: Player index
+            is_first_round: Whether this is the first round (must buy)
+            verbose: Whether to print validation errors
+            max_retries: Maximum retry attempts (default 10)
+
+        Returns:
+            Validated move: 'pass' or {'action': 'buy', 'plant': plant, 'bid': amount, 'discard': card}
+
+        Raises:
+            Exception: If player strategy fails validation after max_retries
+        """
+        player = self.players[player_idx]
+        strategy = player.strategy
+
+        if strategy is None:
+            raise Exception(f"Player {player_idx} has no strategy assigned")
+
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                # Ask strategy for move
+                move = strategy.choose_auction_move(player, self.game_state)
+
+                # Validate move
+                valid, error = self.validate_auction_opening(player_idx, move)
+
+                if not valid:
+                    last_error = error
+                    if verbose and attempt < max_retries - 1:
+                        print(f"  Player {player_idx} invalid move: {error} (retry {attempt + 1}/{max_retries})")
+                    continue
+
+                # Check first round restriction
+                if is_first_round and move == 'pass':
+                    last_error = "Cannot pass in first round"
+                    if verbose and attempt < max_retries - 1:
+                        print(f"  Player {player_idx}: {last_error} (retry {attempt + 1}/{max_retries})")
+                    continue
+
+                return move
+
+            except Exception as e:
+                last_error = str(e)
+                if verbose and attempt < max_retries - 1:
+                    print(f"  Player {player_idx} strategy error: {e} (retry {attempt + 1}/{max_retries})")
+                continue
+
+        # Max retries exceeded
+        raise Exception(f"Player {player_idx} failed to provide valid move after {max_retries} attempts. Last error: {last_error}")
+
+    def get_validated_auction_bid(self, player_idx, plant, current_bid, current_winner, min_bid, verbose, max_retries=10):
+        """Get a validated bid response from a player during an auction
+
+        Args:
+            player_idx: Player index
+            plant: Plant being auctioned
+            current_bid: Current highest bid
+            current_winner: Player index of current high bidder
+            min_bid: Minimum valid bid
+            verbose: Whether to print validation errors
+            max_retries: Maximum retry attempts (default 10)
+
+        Returns:
+            'pass' or {'bid': amount, 'discard': card}
+
+        Raises:
+            Exception: If player strategy fails validation after max_retries
+        """
+        player = self.players[player_idx]
+        strategy = player.strategy
+
+        if strategy is None:
+            raise Exception(f"Player {player_idx} has no strategy assigned")
+
+        # Check if player can afford minimum bid
+        if min_bid > player.money:
+            return 'pass'  # Auto-pass if can't afford
+
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                # Ask strategy for bid
+                if hasattr(strategy, 'bid_in_auction'):
+                    bid_response = strategy.bid_in_auction(player, self.game_state, plant, current_bid, current_winner)
+                else:
+                    # Strategy doesn't implement bidding - auto pass
+                    return 'pass'
+
+                # Validate bid
+                valid, error, normalized = self.validate_auction_bid(
+                    player_idx, bid_response, plant, current_bid, min_bid
+                )
+
+                if not valid:
+                    last_error = error
+                    if verbose and attempt < max_retries - 1:
+                        print(f"  Player {player_idx} invalid bid: {error} (retry {attempt + 1}/{max_retries})")
+                    continue
+
+                return normalized
+
+            except Exception as e:
+                last_error = str(e)
+                if verbose and attempt < max_retries - 1:
+                    print(f"  Player {player_idx} bid error: {e} (retry {attempt + 1}/{max_retries})")
+                continue
+
+        # Max retries exceeded - auto pass
+        if verbose:
+            print(f"  Player {player_idx} failed to provide valid bid after {max_retries} attempts, passing. Last error: {last_error}")
+        return 'pass'
+
+    def execute_plant_purchase(self, player_idx, plant, bid_amount, discard_card, verbose):
+        """Execute a plant purchase after auction completes
+
+        Args:
+            player_idx: Winner of the auction
+            plant: Plant purchased
+            bid_amount: Final bid amount
+            discard_card: Card to discard (None if player has < 3 plants)
+            verbose: Whether to print progress
+
+        This method:
+        1. Adds plant to player's cards
+        2. Deducts money
+        3. Discards specified plant if provided
+        4. Removes excess resources after discard
+        5. Removes plant from market
+        6. Updates market
+        """
+        player = self.players[player_idx]
+
+        # Add plant and pay
+        player.cards.append(plant)
+        player.update_money(-bid_amount)
+
+        if verbose:
+            print(f"Player {player_idx} bought plant {plant.cost} for {bid_amount}E")
+
+        # Discard specified plant if player had 3
+        if discard_card is not None:
+            if discard_card in player.cards:
+                player.cards.remove(discard_card)
+                if verbose:
+                    print(f"  Discarded plant {discard_card.cost}")
+
+                # Remove resources that exceed new capacity
+                self.remove_excess_resources(player, verbose)
+            else:
+                # This shouldn't happen if validation worked
+                if verbose:
+                    print(f"  WARNING: Discard card {discard_card.cost} not found in player's cards")
+
+        # Remove from market
+        if plant in self.game_state.current_market:
+            self.game_state.current_market.remove(plant)
+
+        # Update market
+        self.update_market_after_purchase()
+
+        # Log state
+        if self.enable_logging:
+            self.logger.log_state(self.game_state,
+                description=f"round_{self.game_state.round_num}_player_{player_idx}_bought_plant_{plant.cost}")
+
+    def draw_next_plant(self):
         if not self.game_state.deck:
             return None
-        
-        # In Steps 1 & 2, only draw dark cards (cost < 16)
-        if self.game_state.step < 3:
-            # Look through deck for a dark card
-            checked = 0
-            max_checks = len(self.game_state.deck)
-            skipped_cards = []
-            
-            while checked < max_checks and self.game_state.deck:
-                plant = self.game_state.deck.pop(0)
-                checked += 1
-                
-                # Check for Step 3 card
-                if hasattr(plant, 'resource') and plant.resource == 'stage three':
-                    self.game_state.step_3_triggered = True
-                    continue  # Skip Step 3 card
-                
-                # If dark card (cost < 16), return it
-                if plant.cost < 16:
-                    # Put skipped light cards back at the end
-                    if skipped_cards:
-                        self.game_state.deck.extend(skipped_cards)
-                    return plant
-                else:
-                    # Light card - save to put back later
-                    skipped_cards.append(plant)
-            
-            # No dark card found - put skipped cards back
-            if skipped_cards:
-                self.game_state.deck.extend(skipped_cards)
-            return None
-        
-        # Step 3: draw any card
+
         plant = self.game_state.deck.pop(0)
         # Check for Step 3 card
         if hasattr(plant, 'resource') and plant.resource == 'stage three':
@@ -312,11 +700,17 @@ class GameEngine:
         return plant
     
     def update_market_after_purchase(self):
-        """Update power plant market after a purchase"""
+        """Update power plant market after a purchase
+
+        Maintains proper market structure:
+        - Step 3: 6 plants total (no current/future split)
+        - Steps 1 & 2: 4 lowest in current market, 4 highest in future market
+        """
         # If in Step 3, market should have 6 plants total (no separation)
         if self.game_state.step == 3:
             # Combine markets and keep 6 smallest
-            all_plants = sorted(self.game_state.current_market + self.game_state.future_market, key=lambda c: c.cost)
+            all_plants = self.game_state.current_market + self.game_state.future_market
+
             # Fill from deck if needed
             while len(all_plants) < 6:
                 new_plant = self.draw_next_plant()
@@ -324,67 +718,88 @@ class GameEngine:
                     all_plants.append(new_plant)
                 else:
                     break
+
+            # Sort and keep only 6 smallest
             all_plants.sort(key=lambda c: c.cost)
-            # Keep only 6 smallest
             if len(all_plants) > 6:
-                # Remove excess (largest)
+                # Remove excess (largest) back to deck
                 excess = all_plants[6:]
                 self.game_state.deck.extend(excess)
                 all_plants = all_plants[:6]
+
             self.game_state.current_market = all_plants
             self.game_state.future_market = []
         else:
-            # Steps 1 & 2: Maintain 4 current + 4-5 future
-            # Fill from deck if needed
-            while len(self.game_state.current_market) < 4:
+            # Steps 1 & 2: Combine, fill, sort, then split into 4 current + 4 future
+            all_plants = self.game_state.current_market + self.game_state.future_market
+
+            # Fill from deck until we have 8 plants
+            while len(all_plants) < 9:
                 new_plant = self.draw_next_plant()
                 if new_plant:
-                    self.game_state.current_market.append(new_plant)
+                    all_plants.append(new_plant)
                 else:
                     break
-            
-            while len(self.game_state.future_market) < 4 and self.game_state.step < 3:
-                new_plant = self.draw_next_plant()
-                if new_plant:
-                    self.game_state.future_market.append(new_plant)
-                else:
-                    break
-            
-            # Sort markets
-            self.game_state.current_market.sort(key=lambda c: c.cost)
-            self.game_state.future_market.sort(key=lambda c: c.cost)
-            
-            # Move largest from future to bottom of deck (Steps 1 & 2)
-            if self.game_state.future_market and self.game_state.step < 3:
-                largest = max(self.game_state.future_market, key=lambda c: c.cost)
-                self.game_state.future_market.remove(largest)
+
+            # Sort all plants by cost
+            all_plants.sort(key=lambda c: c.cost)
+
+            # Split: 4 lowest go to current market, rest to future market
+            self.game_state.current_market = all_plants[:4]
+            self.game_state.future_market = all_plants[4:]
+
+            # If we have more than 8 total, move largest from future to bottom of deck
+            while len(self.game_state.future_market) > 5:
+                largest = self.game_state.future_market.pop()
                 self.game_state.deck.append(largest)
     
-    def phase_3_buy_resources(self, player_strategies, verbose):
+    def phase_3_buy_resources(self, verbose):
         """Phase 3: Buy resources (reverse player order)"""
         # Reverse order
         buy_order = list(reversed(self.game_state.player_order))
-        
+
         for player_idx in buy_order:
             player = self.players[player_idx]
-            strategy = player_strategies[player_idx]
+            strategy = player.strategy
+
+            if strategy is None:
+                raise ValueError(f"Player {player_idx} ({player.name}) has no strategy assigned")
             
             # Get player's resource purchase decision
-            purchases = strategy.choose_resources(player, self.game_state, self.game_state.resources)
+            purchases = strategy.choose_resources(player, self.game_state)
             
             if purchases:
                 for resource_type, amount in purchases.items():
                     if amount > 0 and resource_type in self.game_state.resources:
-                        # Validate purchase
-                        if self.validate_resource_purchase(player, resource_type, amount):
-                            resource = self.game_state.resources[resource_type]
-                            purchase_result = resource.buy_resource(amount)
-                            if isinstance(purchase_result, tuple):
-                                cost = purchase_result[1]
-                                player.update_money(-cost)
-                                player.resources[resource_type] += amount
+                        # First check capacity and plant ownership
+                        if not self.validate_resource_purchase(player, resource_type, amount):
+                            continue
+
+                        # Get the cost before purchasing
+                        resource = self.game_state.resources[resource_type]
+                        purchase_result = resource.buy_resource(amount)
+
+                        if isinstance(purchase_result, tuple):
+                            cost = purchase_result[1]
+
+                            # Validate player has enough money
+                            if cost > player.money:
                                 if verbose:
-                                    print(f"Player {player_idx} bought {amount} {resource_type} for {cost}E")
+                                    print(f"Player {player_idx}: Cannot afford {amount} {resource_type} (costs {cost}E, only has {player.money}E)")
+                                # Return the resources to the market
+                                resource.resupply(amount)
+                                continue
+
+                            # Execute purchase
+                            player.update_money(-cost)
+                            player.resources[resource_type] += amount
+                            if verbose:
+                                print(f"Player {player_idx} bought {amount} {resource_type} for {cost}E")
+
+                            # Log state after resource purchase
+                            if self.enable_logging:
+                                self.logger.log_state(self.game_state,
+                                    description=f"round_{self.game_state.round_num}_player_{player_idx}_bought_{amount}_{resource_type}")
         
         self.game_state.phase = 'build'
     
@@ -411,45 +826,94 @@ class GameEngine:
             return False
         
         return True
-    
-    def phase_4_build(self, player_strategies, verbose):
+
+    def remove_excess_resources(self, player, verbose=False):
+        """Remove resources that exceed capacity after discarding a power plant
+
+        When a player discards a power plant, they may have more resources than
+        their remaining plants can store. This method removes the excess.
+        """
+        # Calculate current capacity for each resource type
+        capacities = {'coal': 0, 'oil': 0, 'gas': 0, 'uranium': 0}
+
+        for card in player.cards:
+            if card.resource == 'green':
+                continue
+
+            resource_type = card.resource
+            if resource_type == 'nuclear':
+                capacities['uranium'] += card.resource_cost * 2
+            elif resource_type == 'oil&gas':
+                # Hybrid plants can store oil OR gas (total capacity is shared)
+                capacities['oil'] += card.resource_cost * 2
+                capacities['gas'] += card.resource_cost * 2
+            elif resource_type in ['coal', 'oil', 'gas']:
+                capacities[resource_type] += card.resource_cost * 2
+
+        # Remove excess resources
+        for resource_type in ['coal', 'oil', 'gas', 'uranium']:
+            current = player.resources.get(resource_type, 0)
+            max_capacity = capacities[resource_type]
+
+            if current > max_capacity:
+                excess = current - max_capacity
+                player.resources[resource_type] = max_capacity
+                if verbose:
+                    print(f"  Removed {excess} {resource_type} (exceeded capacity)")
+
+    def phase_4_build(self, verbose):
         """Phase 4: Build generators (reverse player order)"""
         # Reverse order
         build_order = list(reversed(self.game_state.player_order))
-        
+
         # First round: all players must build at least one city
         is_first_round = (self.game_state.round_num == 1)
-        
+
         for player_idx in build_order:
             player = self.players[player_idx]
-            strategy = player_strategies[player_idx]
+            strategy = player.strategy
+
+            if strategy is None:
+                raise ValueError(f"Player {player_idx} ({player.name}) has no strategy assigned")
             
             # Get cities to build in
-            cities_to_build = strategy.choose_cities_to_build(
-                player, self.game_state, is_first_round
-            )
+            cities_to_build = strategy.choose_cities_to_build(player, self.game_state)
             
             if cities_to_build:
                 for city_name in cities_to_build:
                     if city_name in self.game_state.city_occupancy:
+                        # Check if player already has a generator in this city
+                        if city_name in player.generators:
+                            if verbose:
+                                print(f"Player {player_idx}: Already owns a generator in {city_name}")
+                            continue
+
                         # Calculate cost
                         position = len(self.game_state.city_occupancy[city_name])
-                        building_cost = [10, 15, 20][position] if position < 3 else 999
+                        if position == 3:
+                            print(f"{city_name} is full")
+                            continue
+                        building_cost = [10, 15, 20][position]
                         connection_cost = self.calculate_connection_cost(
                             player_idx, city_name
                         )
                         total_cost = building_cost + connection_cost
-                        
+
                         # Check if affordable and valid
                         # Step 1: position < 1 (1 player), Step 2: position < 2 (2 players), Step 3: position < 3 (3 players)
                         if player.money >= total_cost and position < self.game_state.step:
                             player.update_money(-total_cost)
                             player.generators.append(city_name)
                             self.game_state.city_occupancy[city_name].append(player_idx)
-                            
+
                             if verbose:
                                 print(f"Player {player_idx} built in {city_name} for {total_cost}E (building: {building_cost}E, connection: {connection_cost}E)")
-                        
+
+                            # Log state after building
+                            if self.enable_logging:
+                                self.logger.log_state(self.game_state,
+                                    description=f"round_{self.game_state.round_num}_player_{player_idx}_built_in_{city_name}")
+
                         # Check if any plant should be removed (plant number <= cities)
                         self.remove_plants_below_city_count(player_idx)
         
@@ -520,13 +984,28 @@ class GameEngine:
         """Phase 5: Bureaucracy - earn money, resupply, update market"""
         # 1. Earn money based on cities powered (and consume resources)
         for player_idx, player in enumerate(self.players):
-            cities_powered = self.calculate_cities_powered(player)
-            # Consume resources to power cities
-            self.consume_resources_for_power(player, cities_powered)
-            payment = PAYMENT_TABLE.get(cities_powered, 0)
+            strategy = player.strategy
+
+            if strategy is None:
+                raise ValueError(f"Player {player_idx} ({player.name}) has no strategy assigned")
+
+            # Get player's power decision
+            cities_to_power = strategy.choose_cities_to_power(player, self.game_state)
+
+            # Validate: can't power more cities than connected
+            max_cities = len(player.generators)
+            if cities_to_power > max_cities:
+                if verbose:
+                    print(f"Player {player_idx} tried to power {cities_to_power} cities but only has {max_cities} generators, limiting to {max_cities}")
+                cities_to_power = max_cities
+
+            # Validate: check if player has resources to power that many
+            actual_powered = self.validate_and_power_cities(player, cities_to_power, verbose)
+
+            payment = PAYMENT_TABLE.get(actual_powered, 0)
             player.update_money(payment)
             if verbose:
-                print(f"Player {player_idx} powered {cities_powered} cities, earned {payment}E")
+                print(f"Player {player_idx} powered {actual_powered} cities, earned {payment}E")
         
         # 2. Resupply resources
         step_idx = self.game_state.step - 1
@@ -537,22 +1016,72 @@ class GameEngine:
                 if verbose:
                     print(f"Resupplied {resupply_amount} {resource_type}")
         
-        # 3. Update power plant market (Steps 1 & 2 only)
-        if self.game_state.step < 3:
+        # 3. Update power plant market
+        if self.game_state.step == 1 or self.game_state.step == 2:
+            # Steps 1 & 2: Place highest numbered power plant from future market on bottom of deck
             if self.game_state.future_market:
                 largest = max(self.game_state.future_market, key=lambda c: c.cost)
                 self.game_state.future_market.remove(largest)
                 self.game_state.deck.append(largest)
-            
-            # Add new plant to future market (Steps 1 & 2: only dark cards)
-            if len(self.game_state.future_market) < 5:
+                if verbose:
+                    print(f"Moved plant {largest.cost} from future market to bottom of deck")
+
+            # Draw a new plant to replace it
+            new_plant = self.draw_next_plant()
+            if new_plant:
+                self.game_state.future_market.append(new_plant)
+                self.game_state.future_market.sort(key=lambda c: c.cost)
+                if verbose:
+                    print(f"Drew plant {new_plant.cost} to future market")
+
+        elif self.game_state.step == 3:
+            # Step 3: Remove smallest numbered power plant from the game and replace it
+            all_market_plants = self.game_state.current_market + self.game_state.future_market
+            if all_market_plants:
+                smallest = min(all_market_plants, key=lambda c: c.cost)
+
+                # Remove from whichever market it's in
+                if smallest in self.game_state.current_market:
+                    self.game_state.current_market.remove(smallest)
+                elif smallest in self.game_state.future_market:
+                    self.game_state.future_market.remove(smallest)
+
+                if verbose:
+                    print(f"Removed smallest plant {smallest.cost} from game (Step 3)")
+
+                # Draw a new plant to replace it
                 new_plant = self.draw_next_plant()
                 if new_plant:
-                    self.game_state.future_market.append(new_plant)
-                    self.game_state.future_market.sort(key=lambda c: c.cost)
-        
+                    # In Step 3, add to combined market and keep 6 smallest
+                    all_plants = self.game_state.current_market + self.game_state.future_market
+                    all_plants.append(new_plant)
+                    all_plants.sort(key=lambda c: c.cost)
+                    self.game_state.current_market = all_plants[:6]
+                    self.game_state.future_market = []
+                    if verbose:
+                        print(f"Drew plant {new_plant.cost} to replace it")
+
         self.game_state.phase = 'determine_order'
     
+    def validate_and_power_cities(self, player, requested_cities, verbose=False):
+        """Validate player can power requested cities and consume resources
+
+        Returns: Number of cities actually powered (may be less than requested)
+        """
+        # Calculate maximum cities player can power with available resources
+        max_possible = self.calculate_cities_powered(player)
+
+        # Can't power more than possible
+        cities_to_power = min(requested_cities, max_possible)
+
+        if cities_to_power != requested_cities and verbose:
+            print(f"  Requested {requested_cities} but can only power {cities_to_power} with available resources")
+
+        # Consume resources
+        self.consume_resources_for_power(player, cities_to_power)
+
+        return cities_to_power
+
     def calculate_cities_powered(self, player):
         """Calculate how many cities a player can power (without consuming resources)"""
         cities_connected = len(player.generators)

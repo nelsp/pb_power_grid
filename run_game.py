@@ -182,19 +182,24 @@ def main():
     players, current_market, future_market, deck, board_graph, resources, player_order = setup_game(
         num_players=num_players, random_seed=random_seed
     )
-    
-    # Create strategies
+
+    # Assign strategies to players
     strategies = [
         RandomStrategy(),
         GreedyStrategy(),
         ConservativeStrategy(),
         BalancedStrategy()
     ]
-    
-    strategy_names = ['Random Strategy', 'Random Strategy', 'Conservative Strategy', 'Balanced Strategy']
-    print(f"\nPlayers: {', '.join([f'P{i} ({strategy_names[i]})' for i in range(num_players)])}\n")
-    
-    # Create game engine
+
+    strategy_names = ['Random Strategy', 'Greedy Strategy', 'Conservative Strategy', 'Balanced Strategy']
+
+    for i, (player, strategy) in enumerate(zip(players, strategies)):
+        player.strategy = strategy
+        player.name = f'Player_{i} ({strategy_names[i]})'
+
+    print(f"\nPlayers: {', '.join([f'P{i}: {strategy_names[i]}' for i in range(num_players)])}\n")
+
+    # Create game engine with logging enabled
     engine = GameEngine(
         players=players,
         current_market=current_market,
@@ -203,12 +208,15 @@ def main():
         board_graph=board_graph,
         resources=resources,
         player_order=player_order,
-        num_players=num_players
+        num_players=num_players,
+        enable_logging=True,  # Enable game state logging
+        game_id=None,  # Will auto-generate
+        log_file="power_grid_game_log.json"  # Output file
     )
-    
-    # Run game
-    winner = engine.run_game(strategies, verbose=True)
-    
+
+    # Run game (strategies now assigned to players)
+    winner = engine.run_game(verbose=True)
+
     print(f"\n{'='*60}")
     print(f"Game finished! Winner: Player {winner} ({strategy_names[winner]})")
     print(f"{'='*60}")
