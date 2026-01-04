@@ -5,6 +5,7 @@ Each strategy implements methods to make game decisions
 
 import random
 from abc import ABC, abstractmethod
+from player_action import PlayerAction, ActionType
 
 
 class Strategy(ABC):
@@ -29,7 +30,7 @@ class Strategy(ABC):
             game_state: Current game state (contains current_market, round_num, etc.)
 
         Returns:
-            'pass' OR {'action': 'buy', 'plant': Card, 'bid': int, 'discard': Card (if 3 plants)}
+            PlayerAction with action_type AUCTION_PASS or AUCTION_OPEN
         """
         pass
 
@@ -51,7 +52,7 @@ class Strategy(ABC):
             current_winner: Player index of current high bidder (critical strategic info)
 
         Returns:
-            False/'pass' OR int (bid amount) OR {'bid': int, 'discard': Card (if 3 plants)}
+            PlayerAction with action_type AUCTION_BID_PASS or AUCTION_BID
         """
         pass
 
@@ -69,7 +70,7 @@ class Strategy(ABC):
             game_state: Current game state (contains resources dict)
 
         Returns:
-            Dict of {resource_type: amount} for purchases, e.g., {'coal': 3, 'oil': 2}
+            PlayerAction with action_type RESOURCE_PURCHASE
         """
         pass
 
@@ -88,7 +89,7 @@ class Strategy(ABC):
             game_state: Current game state (contains city_occupancy, board_graph, players)
 
         Returns:
-            List of city names to build in, e.g., ['Berlin', 'Paris']
+            PlayerAction with action_type CITY_BUILD
         """
         pass
 
@@ -110,15 +111,10 @@ class Strategy(ABC):
             game_state: Current game state
 
         Returns:
-            List of dicts specifying power plan:
-            [
-                {'plant': Card, 'resources': {'coal': 2}},
-                {'plant': Card, 'resources': {'oil': 1, 'gas': 1}},
-                {'plant': Card, 'resources': None}  # green/eco plant
-            ]
-
-            Or simplified: just return number of cities to power (game engine picks plants greedily)
-            int: Number of cities to power
+            PlayerAction with action_type POWER_CITIES
+            power_plan can be either:
+            - int: Number of cities to power (engine picks plants greedily)
+            - list: Detailed power plan [{'plant': Card, 'resources': {'coal': 2}}, ...]
         """
         pass
 
@@ -315,21 +311,16 @@ class RandomStrategy(Strategy):
         must_buy = (game_state.round_num == 1)
 
         if not available_plants or not StrategyUtils.can_buy_plant(player):
-            return 'pass'
+            return PlayerAction.auction_pass()
 
         if must_buy:
             affordable = StrategyUtils.get_affordable_plants(player, available_plants)
             if affordable:
                 plant = random.choice(affordable)
-                move = {'action': 'buy', 'plant': plant, 'bid': plant.cost}
-
-                # If player has 3 plants, specify which to discard
-                if len(player.cards) >= 3:
-                    move['discard'] = min(player.cards, key=lambda c: c.cost)
-
-                return move
+                discard = min(player.cards, key=lambda c: c.cost) if len(player.cards) >= 3 else None
+                return PlayerAction.auction_open(plant, plant.cost, discard)
             else:
-                return 'pass'  # Can't afford any
+                return PlayerAction.auction_pass()  # Can't afford any
         elif random.random() > 0.3:
             affordable = StrategyUtils.get_affordable_plants(player, available_plants)
             if affordable:
@@ -337,14 +328,9 @@ class RandomStrategy(Strategy):
                 # Ensure bid doesn't exceed player's money
                 max_bid = min(plant.cost + 10, player.money)
                 bid = random.randint(plant.cost, max_bid)
-                move = {'action': 'buy', 'plant': plant, 'bid': bid}
-
-                # If player has 3 plants, specify which to discard
-                if len(player.cards) >= 3:
-                    move['discard'] = min(player.cards, key=lambda c: c.cost)
-
-                return move
-        return 'pass'
+                discard = min(player.cards, key=lambda c: c.cost) if len(player.cards) >= 3 else None
+                return PlayerAction.auction_open(plant, bid, discard)
+        return PlayerAction.auction_pass()
 
     def bid_in_auction(self, player, game_state, plant, current_bid, current_winner):
         """Decide whether to bid in an ongoing auction"""
@@ -357,13 +343,9 @@ class RandomStrategy(Strategy):
             max_willing = min(plant.cost + 5, max_bid)
             if max_willing >= min_bid:
                 bid_amount = random.randint(min_bid, max_willing)
-
-                # If player has 3 plants, must specify discard
-                if len(player.cards) >= 3:
-                    return {'bid': bid_amount, 'discard': min(player.cards, key=lambda c: c.cost)}
-
-                return bid_amount
-        return False
+                discard = min(player.cards, key=lambda c: c.cost) if len(player.cards) >= 3 else None
+                return PlayerAction.auction_bid(bid_amount, discard)
+        return PlayerAction.auction_bid_pass()
     
     def choose_resources(self, player, game_state):
         """Buy random resources for owned plants"""
@@ -423,20 +405,21 @@ class RandomStrategy(Strategy):
                         if cost is not None and player.money >= cost:
                             purchases[resource_type] = purchases.get(resource_type, 0) + amount_to_buy
 
-        return purchases
-    
+        return PlayerAction.resource_purchase(purchases)
+
     def choose_cities_to_build(self, player, game_state):
         """Choose random cities to build in"""
         available = StrategyUtils.get_available_cities(player, game_state)
 
         if not available:
-            return []
+            return PlayerAction.city_build([])
 
         # Check if game has ended (any player has 18+ generators)
         # If so, try to build to maximize powered cities
         if StrategyUtils.has_game_ended_with_players(game_state.players):
             # must_build is determined by game rules, strategies handle it implicitly
-            return self._build_for_end_game(player, game_state, available)
+            cities = self._build_for_end_game(player, game_state, available)
+            return PlayerAction.city_build(cities)
 
         # Note: must_build requirement will be validated by game engine
         # Strategy just chooses cities based on current game state
@@ -451,8 +434,8 @@ class RandomStrategy(Strategy):
             if affordable:
                 # Pick random from affordable cities
                 city, _ = random.choice(affordable)
-                return [city]
-            return []
+                return PlayerAction.city_build([city])
+            return PlayerAction.city_build([])
         else:
             # Optional building - 80% chance to try
             if random.random() > 0.2:
@@ -471,14 +454,15 @@ class RandomStrategy(Strategy):
                         cities_to_build.append(city)
                         remaining_money -= cost
 
-                return cities_to_build
+                return PlayerAction.city_build(cities_to_build)
 
-        return []
+        return PlayerAction.city_build([])
 
     def choose_cities_to_power(self, player, game_state):
         """Random: Power maximum cities possible"""
         # Simple strategy: always power as many as possible
-        return StrategyUtils.calculate_max_powered_cities(player)
+        cities = StrategyUtils.calculate_max_powered_cities(player)
+        return PlayerAction.power_cities(cities)
 
     def _build_for_end_game(self, player, game_state, available):
         """Build cities to maximize powered cities when game is ending"""
@@ -518,28 +502,24 @@ class GreedyStrategy(Strategy):
         must_buy = (game_state.round_num == 1)
 
         if not available_plants or not StrategyUtils.can_buy_plant(player):
-            return 'pass'
+            return PlayerAction.auction_pass()
 
         affordable = StrategyUtils.get_affordable_plants(player, available_plants)
         if not affordable:
-            return 'pass'
+            return PlayerAction.auction_pass()
 
         if must_buy:
             # Choose plant that powers most cities
             best_plant = max(affordable, key=lambda p: p.cities)
-            move = {'action': 'buy', 'plant': best_plant, 'bid': best_plant.cost}
-            if len(player.cards) >= 3:
-                move['discard'] = min(player.cards, key=lambda c: c.cost)
-            return move
+            discard = min(player.cards, key=lambda c: c.cost) if len(player.cards) >= 3 else None
+            return PlayerAction.auction_open(best_plant, best_plant.cost, discard)
 
         # Prefer plants that power many cities
         affordable.sort(key=lambda p: p.cities, reverse=True)
         plant = affordable[0]
         bid = min(plant.cost + 5, player.money)
-        move = {'action': 'buy', 'plant': plant, 'bid': bid}
-        if len(player.cards) >= 3:
-            move['discard'] = min(player.cards, key=lambda c: c.cost)
-        return move
+        discard = min(player.cards, key=lambda c: c.cost) if len(player.cards) >= 3 else None
+        return PlayerAction.auction_open(plant, bid, discard)
 
     def bid_in_auction(self, player, game_state, plant, current_bid, current_winner):
         """Greedy: Bid aggressively on plants that power many cities"""
@@ -552,15 +532,13 @@ class GreedyStrategy(Strategy):
             max_willing = min(plant.cost + plant.cities, max_bid)
             if max_willing >= min_bid:
                 bid_amount = min(min_bid + 2, max_willing)
-                if len(player.cards) >= 3:
-                    return {'bid': bid_amount, 'discard': min(player.cards, key=lambda c: c.cost)}
-                return bid_amount
+                discard = min(player.cards, key=lambda c: c.cost) if len(player.cards) >= 3 else None
+                return PlayerAction.auction_bid(bid_amount, discard)
         elif plant.cities >= 3 and min_bid <= max_bid * 0.5:
             # Moderate interest
-            if len(player.cards) >= 3:
-                return {'bid': min_bid, 'discard': min(player.cards, key=lambda c: c.cost)}
-            return min_bid
-        return False
+            discard = min(player.cards, key=lambda c: c.cost) if len(player.cards) >= 3 else None
+            return PlayerAction.auction_bid(min_bid, discard)
+        return PlayerAction.auction_bid_pass()
 
     def choose_resources(self, player, game_state):
         """Buy resources for all owned plants"""
@@ -603,13 +581,13 @@ class GreedyStrategy(Strategy):
                         if cost is not None and player.money >= cost:
                             purchases[resource_type] = purchases.get(resource_type, 0) + amount_to_buy
 
-        return purchases
+        return PlayerAction.resource_purchase(purchases)
 
     def choose_cities_to_build(self, player, game_state):
         """Build in as many cities as affordable"""
         available = StrategyUtils.get_available_cities(player, game_state)
         if not available:
-            return []
+            return PlayerAction.city_build([])
 
         # Check if game has ended - maximize powered cities
         if StrategyUtils.has_game_ended_with_players(game_state.players):
@@ -641,12 +619,13 @@ class GreedyStrategy(Strategy):
             city = min(available, key=lambda c: StrategyUtils.calculate_city_cost(player, c, game_state))
             cities_to_build = [city]
 
-        return cities_to_build
+        return PlayerAction.city_build(cities_to_build)
 
     def choose_cities_to_power(self, player, game_state):
         """Greedy: Power maximum cities possible"""
         # Greedy strategy: always power as many as possible for maximum income
-        return StrategyUtils.calculate_max_powered_cities(player)
+        cities = StrategyUtils.calculate_max_powered_cities(player)
+        return PlayerAction.power_cities(cities)
 
 
 class ConservativeStrategy(Strategy):
@@ -658,37 +637,27 @@ class ConservativeStrategy(Strategy):
         must_buy = (game_state.round_num == 1)
 
         if not available_plants or not StrategyUtils.can_buy_plant(player):
-            return 'pass'
+            return PlayerAction.auction_pass()
 
         affordable = StrategyUtils.get_affordable_plants(player, available_plants)
         if not affordable:
-            return 'pass'
+            return PlayerAction.auction_pass()
 
         if must_buy:
             # Choose cheapest affordable
             cheapest = min(affordable, key=lambda p: p.cost)
-            move = {'action': 'buy', 'plant': cheapest, 'bid': cheapest.cost}
-
-            # If player has 3 plants, must specify which to discard
-            if len(player.cards) >= 3:
-                move['discard'] = min(player.cards, key=lambda c: c.cost)
-
-            return move
+            discard = min(player.cards, key=lambda c: c.cost) if len(player.cards) >= 3 else None
+            return PlayerAction.auction_open(cheapest, cheapest.cost, discard)
 
         # Only buy if we have enough money left (keep reserve)
         reserve = 20
         affordable_reserve = [p for p in affordable if p.cost <= player.money - reserve]
         if affordable_reserve:
             cheapest = min(affordable_reserve, key=lambda p: p.cost)
-            move = {'action': 'buy', 'plant': cheapest, 'bid': cheapest.cost}
+            discard = min(player.cards, key=lambda c: c.cost) if len(player.cards) >= 3 else None
+            return PlayerAction.auction_open(cheapest, cheapest.cost, discard)
 
-            # If player has 3 plants, must specify which to discard
-            if len(player.cards) >= 3:
-                move['discard'] = min(player.cards, key=lambda c: c.cost)
-
-            return move
-
-        return 'pass'
+        return PlayerAction.auction_pass()
 
     def bid_in_auction(self, player, game_state, plant, current_bid, current_winner):
         """Conservative: Only bid on cheap plants, don't bid high"""
@@ -699,14 +668,9 @@ class ConservativeStrategy(Strategy):
         reserve = 20  # Keep money in reserve
         if plant.cost <= 15 and min_bid <= plant.cost + 2 and min_bid <= max_bid - reserve:
             # Only bid minimum, don't escalate
-            bid_amount = min_bid
-
-            # If player has 3 plants, must specify which to discard
-            if len(player.cards) >= 3:
-                return {'bid': bid_amount, 'discard': min(player.cards, key=lambda c: c.cost)}
-
-            return bid_amount
-        return False
+            discard = min(player.cards, key=lambda c: c.cost) if len(player.cards) >= 3 else None
+            return PlayerAction.auction_bid(min_bid, discard)
+        return PlayerAction.auction_bid_pass()
 
     def choose_resources(self, player, game_state):
         """Buy minimal resources"""
@@ -749,13 +713,13 @@ class ConservativeStrategy(Strategy):
                         if cost is not None and player.money >= cost:
                             purchases[resource_type] = purchases.get(resource_type, 0) + amount_to_buy
 
-        return purchases
+        return PlayerAction.resource_purchase(purchases)
 
     def choose_cities_to_build(self, player, game_state):
         """Build only if can afford easily"""
         available = StrategyUtils.get_available_cities(player, game_state)
         if not available:
-            return []
+            return PlayerAction.city_build([])
 
         # Check if game has ended - maximize powered cities
         if StrategyUtils.has_game_ended_with_players(game_state.players):
@@ -776,18 +740,18 @@ class ConservativeStrategy(Strategy):
                 cities_to_build.append(city)
                 budget -= cost
 
-            return cities_to_build
+            return PlayerAction.city_build(cities_to_build)
 
         # Normal conservative behavior - save money if we have few resources
         if player.money < 30 and len(player.generators) > 0:
-            return []  # Save money
+            return PlayerAction.city_build([])  # Save money
 
         # Build in cheapest city if we have money or need our first generator
         if player.money >= 30 or len(player.generators) == 0:
             city = min(available, key=lambda c: StrategyUtils.calculate_city_cost(player, c, game_state))
-            return [city]
+            return PlayerAction.city_build([city])
 
-        return []
+        return PlayerAction.city_build([])
 
     def choose_cities_to_power(self, player, game_state):
         """Conservative: Power enough to maintain cash flow, save resources if wealthy"""
@@ -796,10 +760,12 @@ class ConservativeStrategy(Strategy):
         # If we have enough money (>60E), consider saving resources for later
         if player.money > 60 and len(player.generators) >= 10:
             # Power fewer cities to conserve resources
-            return max(0, max_powered - 2)
+            cities = max(0, max_powered - 2)
+        else:
+            # Otherwise power maximum
+            cities = max_powered
 
-        # Otherwise power maximum
-        return max_powered
+        return PlayerAction.power_cities(cities)
 
 
 class BalancedStrategy(Strategy):
@@ -811,33 +777,23 @@ class BalancedStrategy(Strategy):
         must_buy = (game_state.round_num == 1)
 
         if not available_plants or not StrategyUtils.can_buy_plant(player):
-            return 'pass'
+            return PlayerAction.auction_pass()
 
         affordable = StrategyUtils.get_affordable_plants(player, available_plants)
         if not affordable:
-            return 'pass'
+            return PlayerAction.auction_pass()
 
         if must_buy:
             # Choose efficient plant
             best_plant = max(affordable, key=lambda p: p.cities / float(p.cost))
-            move = {'action': 'buy', 'plant': best_plant, 'bid': best_plant.cost}
-
-            # If player has 3 plants, must specify which to discard
-            if len(player.cards) >= 3:
-                move['discard'] = min(player.cards, key=lambda c: c.cost)
-
-            return move
+            discard = min(player.cards, key=lambda c: c.cost) if len(player.cards) >= 3 else None
+            return PlayerAction.auction_open(best_plant, best_plant.cost, discard)
 
         # Prefer efficient plants we can afford
         best_plant = max(affordable, key=lambda p: p.cities / float(p.cost))
         bid = min(best_plant.cost + 3, player.money)
-        move = {'action': 'buy', 'plant': best_plant, 'bid': bid}
-
-        # If player has 3 plants, must specify which to discard
-        if len(player.cards) >= 3:
-            move['discard'] = min(player.cards, key=lambda c: c.cost)
-
-        return move
+        discard = min(player.cards, key=lambda c: c.cost) if len(player.cards) >= 3 else None
+        return PlayerAction.auction_open(best_plant, bid, discard)
 
     def bid_in_auction(self, player, game_state, plant, current_bid, current_winner):
         """Balanced: Bid based on efficiency (cities per cost)"""
@@ -853,13 +809,9 @@ class BalancedStrategy(Strategy):
             if max_willing >= min_bid:
                 # Bid moderately
                 bid_amount = min(min_bid + 1, max_willing)
-
-                # If player has 3 plants, must specify which to discard
-                if len(player.cards) >= 3:
-                    return {'bid': bid_amount, 'discard': min(player.cards, key=lambda c: c.cost)}
-
-                return bid_amount
-        return False
+                discard = min(player.cards, key=lambda c: c.cost) if len(player.cards) >= 3 else None
+                return PlayerAction.auction_bid(bid_amount, discard)
+        return PlayerAction.auction_bid_pass()
 
     def choose_resources(self, player, game_state):
         """Buy resources efficiently"""
@@ -904,13 +856,13 @@ class BalancedStrategy(Strategy):
                         if cost is not None and player.money >= cost:
                             purchases[resource_type] = purchases.get(resource_type, 0) + amount_to_buy
 
-        return purchases
+        return PlayerAction.resource_purchase(purchases)
 
     def choose_cities_to_build(self, player, game_state):
         """Build strategically"""
         available = StrategyUtils.get_available_cities(player, game_state)
         if not available:
-            return []
+            return PlayerAction.city_build([])
 
         # Check if game has ended - maximize powered cities
         if StrategyUtils.has_game_ended_with_players(game_state.players):
@@ -931,7 +883,7 @@ class BalancedStrategy(Strategy):
                 cities_to_build.append(city)
                 budget -= cost
 
-            return cities_to_build
+            return PlayerAction.city_build(cities_to_build)
 
         # Build 1-2 cities per turn based on game state
         # Build if we have good income potential or need first generator
@@ -941,7 +893,7 @@ class BalancedStrategy(Strategy):
         if len(player.generators) == 0:
             # Must build first generator
             city = min(available, key=lambda c: StrategyUtils.calculate_city_cost(player, c, game_state))
-            return [city]
+            return PlayerAction.city_build([city])
         elif len(player.generators) < 10:
                 # Early game: build more (up to 2 cities)
                 num = min(2, len(available))
@@ -958,7 +910,7 @@ class BalancedStrategy(Strategy):
                 if budget >= cost:
                     cities_to_build.append(city)
 
-        return cities_to_build
+        return PlayerAction.city_build(cities_to_build)
 
     def choose_cities_to_power(self, player, game_state):
         """Balanced: Power based on resource situation and game state"""
@@ -973,8 +925,12 @@ class BalancedStrategy(Strategy):
 
             # If resources below 40%, consider powering fewer cities
             if resource_ratio < 0.4 and len(player.generators) >= 8:
-                return max(0, max_powered - 1)
+                cities = max(0, max_powered - 1)
+            else:
+                cities = max_powered
+        else:
+            # Otherwise power maximum
+            cities = max_powered
 
-        # Otherwise power maximum
-        return max_powered
+        return PlayerAction.power_cities(cities)
 

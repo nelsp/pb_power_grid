@@ -8,6 +8,7 @@ import copy
 from card import Card
 import create_use_resources as res
 from game_state_logger import GameStateLogger
+from player_action import PlayerAction, ActionType
 
 
 # Payment table: cities powered -> Elektro earned
@@ -264,23 +265,23 @@ class GameEngine:
                     print("No plants available in market")
                 break
 
-            # Current player gets validated move (with retries)
+            # Current player gets validated action (with retries)
             current_player_idx = eligible_players[0]
 
-            # Get validated move - raises exception if player fails after max_retries
-            move = self.get_validated_auction_opening(current_player_idx, is_first_round, verbose)
+            # Get validated action - raises exception if player fails after max_retries
+            action = self.get_validated_auction_opening(current_player_idx, is_first_round, verbose)
 
             # Handle pass
-            if move == 'pass':
+            if action.action_type == ActionType.AUCTION_PASS:
                 players_who_passed.add(current_player_idx)
                 if verbose:
                     print(f"Player {current_player_idx}: Passed")
                 continue
 
             # Handle buy - start auction
-            plant = move['plant']
-            initial_bid = move['bid']
-            initial_discard = move.get('discard')
+            plant = action.plant
+            initial_bid = action.bid
+            initial_discard = action.discard
 
             if verbose:
                 print(f"\nPlayer {current_player_idx} opens bidding on plant {plant.cost} at {initial_bid}E")
@@ -365,12 +366,12 @@ class GameEngine:
             for player_idx in list(active_bidders):
                 min_bid = current_bid + 1
 
-                # Get validated bid from player
-                bid_response = self.get_validated_auction_bid(
+                # Get validated bid action from player
+                bid_action = self.get_validated_auction_bid(
                     player_idx, plant, current_bid, current_winner, min_bid, verbose
                 )
 
-                if bid_response == 'pass':
+                if bid_action.action_type == ActionType.AUCTION_BID_PASS:
                     active_bidders.remove(player_idx)
 
                     # Update auction state
@@ -386,8 +387,8 @@ class GameEngine:
                     continue
 
                 # Player made a valid bid
-                new_bid = bid_response['bid']
-                new_discard = bid_response.get('discard')
+                new_bid = bid_action.bid
+                new_discard = bid_action.discard
 
                 current_bid = new_bid
                 current_winner = player_idx
@@ -420,26 +421,29 @@ class GameEngine:
 
         return (current_winner, current_bid, current_discard)
 
-    def validate_auction_opening(self, player_idx, move):
-        """Validate a player's auction opening move
+    def validate_auction_opening(self, player_idx, action):
+        """Validate a player's auction opening action
 
-        Move should be:
-        - 'pass' to pass (not allowed in first round)
-        - {'action': 'buy', 'plant': plant, 'bid': amount, 'discard': card (optional)}
+        Args:
+            player_idx: Player index
+            action: PlayerAction object
 
         Returns:
             (valid: bool, error_message: str or None)
         """
+        if not isinstance(action, PlayerAction):
+            return (False, "Action must be a PlayerAction object")
+
         player = self.players[player_idx]
 
-        if move == 'pass':
+        if action.action_type == ActionType.AUCTION_PASS:
             return (True, None)
 
-        if not isinstance(move, dict) or move.get('action') != 'buy':
-            return (False, "Move must be 'pass' or {'action': 'buy', ...}")
+        if action.action_type != ActionType.AUCTION_OPEN:
+            return (False, f"Expected AUCTION_PASS or AUCTION_OPEN, got {action.action_type.value}")
 
-        plant = move.get('plant')
-        bid = move.get('bid')
+        plant = action.plant
+        bid = action.bid
 
         if plant is None:
             return (False, "Must specify plant to buy")
@@ -464,40 +468,42 @@ class GameEngine:
                 return (False, f"Plant {plant.cost} not better than smallest owned ({smallest_owned.cost})")
 
             # Must specify which plant to discard
-            discard = move.get('discard')
-            if discard is None:
+            if action.discard is None:
                 return (False, "Must specify which plant to discard (player has 3 plants)")
 
-            if discard not in player.cards:
-                return (False, f"Cannot discard plant {discard.cost} - not owned")
+            if action.discard not in player.cards:
+                return (False, f"Cannot discard plant {action.discard.cost} - not owned")
 
         return (True, None)
 
-    def validate_auction_bid(self, player_idx, bid_response, plant, current_bid, min_bid):
-        """Validate a player's bid response during auction
+    def validate_auction_bid(self, player_idx, action, plant, current_bid, min_bid):
+        """Validate a player's bid action during auction
 
-        Response should be:
-        - 'pass' to pass
-        - integer bid amount
-        - {'bid': amount, 'discard': card (optional)}
+        Args:
+            player_idx: Player index
+            action: PlayerAction object
+            plant: Plant being auctioned
+            current_bid: Current highest bid
+            min_bid: Minimum valid bid
 
         Returns:
-            (valid: bool, error_message: str or None, normalized_response)
+            (valid: bool, error_message: str or None, action: PlayerAction)
         """
+        if not isinstance(action, PlayerAction):
+            return (False, "Action must be a PlayerAction object", None)
+
         player = self.players[player_idx]
 
-        if bid_response == 'pass' or bid_response is None or bid_response is False:
-            return (True, None, 'pass')
+        if action.action_type == ActionType.AUCTION_BID_PASS:
+            return (True, None, action)
 
-        # Handle integer response
-        if isinstance(bid_response, int):
-            bid_amount = bid_response
-            discard = None
-        elif isinstance(bid_response, dict):
-            bid_amount = bid_response.get('bid')
-            discard = bid_response.get('discard')
-        else:
-            return (False, f"Invalid bid response type: {type(bid_response)}", None)
+        if action.action_type != ActionType.AUCTION_BID:
+            return (False, f"Expected AUCTION_BID_PASS or AUCTION_BID, got {action.action_type.value}", None)
+
+        bid_amount = action.bid
+
+        if bid_amount is None:
+            return (False, "Must specify bid amount", None)
 
         if bid_amount < min_bid:
             return (False, f"Bid {bid_amount}E below minimum {min_bid}E", None)
@@ -507,18 +513,18 @@ class GameEngine:
 
         # Check discard requirement
         if len(player.cards) >= 3:
-            if discard is None:
+            if action.discard is None:
                 return (False, "Must specify which plant to discard (player has 3 plants)", None)
-            if discard not in player.cards:
-                return (False, f"Cannot discard plant {discard.cost} - not owned", None)
+            if action.discard not in player.cards:
+                return (False, f"Cannot discard plant {action.discard.cost} - not owned", None)
 
-        return (True, None, {'bid': bid_amount, 'discard': discard})
+        return (True, None, action)
 
     def get_validated_auction_opening(self, player_idx, is_first_round, verbose, max_retries=10):
-        """Get a validated auction opening move from a player
+        """Get a validated auction opening action from a player
 
-        Asks the player's strategy for a move and validates it.
-        Retries up to max_retries times if move is invalid.
+        Asks the player's strategy for an action and validates it.
+        Retries up to max_retries times if action is invalid.
 
         Args:
             player_idx: Player index
@@ -527,7 +533,7 @@ class GameEngine:
             max_retries: Maximum retry attempts (default 10)
 
         Returns:
-            Validated move: 'pass' or {'action': 'buy', 'plant': plant, 'bid': amount, 'discard': card}
+            Validated PlayerAction with type AUCTION_PASS or AUCTION_OPEN
 
         Raises:
             Exception: If player strategy fails validation after max_retries
@@ -541,26 +547,26 @@ class GameEngine:
         last_error = None
         for attempt in range(max_retries):
             try:
-                # Ask strategy for move
-                move = strategy.choose_auction_move(player, self.game_state)
+                # Ask strategy for action
+                action = strategy.choose_auction_move(player, self.game_state)
 
-                # Validate move
-                valid, error = self.validate_auction_opening(player_idx, move)
+                # Validate action
+                valid, error = self.validate_auction_opening(player_idx, action)
 
                 if not valid:
                     last_error = error
                     if verbose and attempt < max_retries - 1:
-                        print(f"  Player {player_idx} invalid move: {error} (retry {attempt + 1}/{max_retries})")
+                        print(f"  Player {player_idx} invalid action: {error} (retry {attempt + 1}/{max_retries})")
                     continue
 
                 # Check first round restriction
-                if is_first_round and move == 'pass':
+                if is_first_round and action.action_type == ActionType.AUCTION_PASS:
                     last_error = "Cannot pass in first round"
                     if verbose and attempt < max_retries - 1:
                         print(f"  Player {player_idx}: {last_error} (retry {attempt + 1}/{max_retries})")
                     continue
 
-                return move
+                return action
 
             except Exception as e:
                 last_error = str(e)
@@ -569,10 +575,10 @@ class GameEngine:
                 continue
 
         # Max retries exceeded
-        raise Exception(f"Player {player_idx} failed to provide valid move after {max_retries} attempts. Last error: {last_error}")
+        raise Exception(f"Player {player_idx} failed to provide valid action after {max_retries} attempts. Last error: {last_error}")
 
     def get_validated_auction_bid(self, player_idx, plant, current_bid, current_winner, min_bid, verbose, max_retries=10):
-        """Get a validated bid response from a player during an auction
+        """Get a validated bid action from a player during an auction
 
         Args:
             player_idx: Player index
@@ -584,7 +590,7 @@ class GameEngine:
             max_retries: Maximum retry attempts (default 10)
 
         Returns:
-            'pass' or {'bid': amount, 'discard': card}
+            PlayerAction with type AUCTION_BID_PASS or AUCTION_BID
 
         Raises:
             Exception: If player strategy fails validation after max_retries
@@ -597,21 +603,21 @@ class GameEngine:
 
         # Check if player can afford minimum bid
         if min_bid > player.money:
-            return 'pass'  # Auto-pass if can't afford
+            return PlayerAction.auction_bid_pass()  # Auto-pass if can't afford
 
         last_error = None
         for attempt in range(max_retries):
             try:
-                # Ask strategy for bid
+                # Ask strategy for bid action
                 if hasattr(strategy, 'bid_in_auction'):
-                    bid_response = strategy.bid_in_auction(player, self.game_state, plant, current_bid, current_winner)
+                    action = strategy.bid_in_auction(player, self.game_state, plant, current_bid, current_winner)
                 else:
                     # Strategy doesn't implement bidding - auto pass
-                    return 'pass'
+                    return PlayerAction.auction_bid_pass()
 
                 # Validate bid
-                valid, error, normalized = self.validate_auction_bid(
-                    player_idx, bid_response, plant, current_bid, min_bid
+                valid, error, validated_action = self.validate_auction_bid(
+                    player_idx, action, plant, current_bid, min_bid
                 )
 
                 if not valid:
@@ -620,7 +626,7 @@ class GameEngine:
                         print(f"  Player {player_idx} invalid bid: {error} (retry {attempt + 1}/{max_retries})")
                     continue
 
-                return normalized
+                return validated_action
 
             except Exception as e:
                 last_error = str(e)
@@ -631,7 +637,7 @@ class GameEngine:
         # Max retries exceeded - auto pass
         if verbose:
             print(f"  Player {player_idx} failed to provide valid bid after {max_retries} attempts, passing. Last error: {last_error}")
-        return 'pass'
+        return PlayerAction.auction_bid_pass()
 
     def execute_plant_purchase(self, player_idx, plant, bid_amount, discard_card, verbose):
         """Execute a plant purchase after auction completes
@@ -764,12 +770,18 @@ class GameEngine:
 
             if strategy is None:
                 raise ValueError(f"Player {player_idx} ({player.name}) has no strategy assigned")
-            
-            # Get player's resource purchase decision
-            purchases = strategy.choose_resources(player, self.game_state)
-            
-            if purchases:
-                for resource_type, amount in purchases.items():
+
+            # Get player's resource purchase action
+            action = strategy.choose_resources(player, self.game_state)
+
+            # Validate action type
+            if not isinstance(action, PlayerAction):
+                raise ValueError(f"Player {player_idx} strategy must return PlayerAction object")
+            if action.action_type != ActionType.RESOURCE_PURCHASE:
+                raise ValueError(f"Player {player_idx} returned wrong action type: {action.action_type.value}, expected RESOURCE_PURCHASE")
+
+            if action.resources:
+                for resource_type, amount in action.resources.items():
                     if amount > 0 and resource_type in self.game_state.resources:
                         # First check capacity and plant ownership
                         if not self.validate_resource_purchase(player, resource_type, amount):
@@ -875,12 +887,18 @@ class GameEngine:
 
             if strategy is None:
                 raise ValueError(f"Player {player_idx} ({player.name}) has no strategy assigned")
-            
-            # Get cities to build in
-            cities_to_build = strategy.choose_cities_to_build(player, self.game_state)
-            
-            if cities_to_build:
-                for city_name in cities_to_build:
+
+            # Get city building action
+            action = strategy.choose_cities_to_build(player, self.game_state)
+
+            # Validate action type
+            if not isinstance(action, PlayerAction):
+                raise ValueError(f"Player {player_idx} strategy must return PlayerAction object")
+            if action.action_type != ActionType.CITY_BUILD:
+                raise ValueError(f"Player {player_idx} returned wrong action type: {action.action_type.value}, expected CITY_BUILD")
+
+            if action.cities:
+                for city_name in action.cities:
                     if city_name in self.game_state.city_occupancy:
                         # Check if player already has a generator in this city
                         if city_name in player.generators:
@@ -989,8 +1007,21 @@ class GameEngine:
             if strategy is None:
                 raise ValueError(f"Player {player_idx} ({player.name}) has no strategy assigned")
 
-            # Get player's power decision
-            cities_to_power = strategy.choose_cities_to_power(player, self.game_state)
+            # Get player's power action
+            action = strategy.choose_cities_to_power(player, self.game_state)
+
+            # Validate action type
+            if not isinstance(action, PlayerAction):
+                raise ValueError(f"Player {player_idx} strategy must return PlayerAction object")
+            if action.action_type != ActionType.POWER_CITIES:
+                raise ValueError(f"Player {player_idx} returned wrong action type: {action.action_type.value}, expected POWER_CITIES")
+
+            # Extract power plan (int or detailed list)
+            cities_to_power = action.power_plan
+            if not isinstance(cities_to_power, int):
+                # If detailed power plan provided, convert to int for now (simplified implementation)
+                # TODO: Implement detailed power plan validation
+                cities_to_power = len(cities_to_power) if cities_to_power else 0
 
             # Validate: can't power more cities than connected
             max_cities = len(player.generators)
